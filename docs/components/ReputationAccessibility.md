@@ -88,6 +88,10 @@ deleting selected events via a confirmation dialog.
 </main>
 ```
 
+Rendered by `ReputationLoadingClient`, which passes `embedded` to the skeleton
+so the document keeps exactly one `<main>` and one `role="status"` region. As an
+App Router Suspense boundary the skeleton renders standalone and owns both.
+
 ---
 
 ## Roles and ARIA Attributes
@@ -269,9 +273,24 @@ Focus restoration on navigation away from the page is handled by the global
 
 ### Loading state (`ReputationLoadingClient`)
 
-`ReputationLoadingClient` applies the same focus-on-mount behaviour as
-`ReputationPageClient` while the Suspense boundary is active. The `<main>`
-also carries `aria-busy="true"` during this period.
+`ReputationLoadingClient` moves focus to its own `<main>` while the Suspense
+boundary is active, and that `<main>` carries `aria-busy="true"`. Three things
+differ from `ReputationPageClient`:
+
+1. **Scoped target.** It focuses the ref it renders itself, not
+   `document.querySelector('main')`. On a nested route the first `<main>` in
+   the document belongs to the layout, so a document-wide query would move
+   focus outside the loading surface.
+2. **Bounded delay.** The focus delay is validated to `0…2000 ms` (default
+   `100`) — see `docs/reputation/ReputationLoadingValidation.md`.
+3. **Once per mount, and never stolen.** Focus is applied at most once per
+   mount (once more per successful retry cycle), and is skipped if the user
+   focused something else during the delay. An unfocusable landmark is skipped
+   and reported.
+
+The announcement text and both landmark modes are validated by
+`resolveReputationLoadingOptions`; an over-long or unusable announcement falls
+back to the default rather than being truncated.
 
 ### Confirmation dialog (`ConfirmDialog`)
 

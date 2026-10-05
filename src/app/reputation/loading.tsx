@@ -48,9 +48,21 @@
  * INV-5 (Diagnosability). Invalid geometry is reported through the shared
  *   `reportError` abstraction with a non-sensitive field list — never with
  *   the offending value — so failures are diagnosable without leaking data.
+ *
+ * Props (see `src/lib/validateReputationLoading.ts`):
+ * - `announcement` is untrusted. It is resolved through
+ *   `resolveReputationLoadingOptions`, so an over-long, empty, or non-string
+ *   value falls back to `REPUTATION_LOADING_ANNOUNCEMENT` rather than
+ *   rendering clipped or empty text in a live region.
+ * - `embedded` exists because a document may contain only one `<main>`
+ *   landmark (INV-4). `ReputationLoadingClient` already renders that landmark,
+ *   so it passes `embedded` to keep one `<main>` and one `role="status"`
+ *   region. The default stays standalone for the App Router Suspense
+ *   boundary, which renders this component on its own.
  */
 
 import { reportError } from '@/lib/errorReporter';
+import { resolveReputationLoadingOptions } from '@/lib/validateReputationLoading';
 
 // ---------------------------------------------------------------------------
 // Invariant constants and pure geometry resolution (INV-1, INV-3, INV-5)
@@ -296,29 +308,75 @@ const HistoryCardSkeleton = ({
 // Route loading export
 // ---------------------------------------------------------------------------
 
-export default function ReputationLoading() {
+/** Untrusted props accepted by the loading skeleton. */
+export interface ReputationLoadingProps {
+  /**
+   * Live-region text. Invalid input (non-string, empty after sanitising, or
+   * longer than `MAX_ANNOUNCEMENT_LENGTH`) is rejected in favour of
+   * {@link REPUTATION_LOADING_ANNOUNCEMENT}.
+   */
+  announcement?: string;
+  /**
+   * When `true`, the skeleton renders without its own `<main>` and
+   * `aria-busy`, because the parent wrapper already renders them.
+   */
+  embedded?: boolean;
+}
+
+/** The announcement + skeleton body, shared by both landmark variants. */
+const ReputationLoadingBody = ({
+  announcement,
+  metricTileLabels,
+  historyRowCount,
+}: {
+  announcement: string;
+  metricTileLabels: readonly string[];
+  historyRowCount: number;
+}) => (
+  <>
+    <span role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+      {announcement}
+    </span>
+
+    {/* Page heading skeleton */}
+    <div
+      aria-hidden="true"
+      className="mb-6 h-8 w-32 rounded-lg bg-slate-200 animate-shimmer motion-reduce:animate-none"
+    />
+
+    {/* ReputationProfile layout */}
+    <section className="w-full max-w-5xl mx-auto space-y-8 px-4 py-10 sm:px-6 lg:px-8">
+      <ProfileCardSkeleton metricTileLabels={metricTileLabels} />
+      <HistoryCardSkeleton historyRowCount={historyRowCount} />
+    </section>
+  </>
+);
+
+export default function ReputationLoading({
+  announcement,
+  embedded,
+}: ReputationLoadingProps = {}) {
   // Deterministic, validated geometry (INV-1, INV-3). No user data is read,
   // so repeated and concurrent renders produce identical markup (INV-2).
-  const { metricTileLabels, historyRowCount } =
-    DEFAULT_REPUTATION_LOADING_GEOMETRY;
+  const { metricTileLabels, historyRowCount } = DEFAULT_REPUTATION_LOADING_GEOMETRY;
 
-  return (
-    <main className="min-h-screen p-8" aria-busy="true">
-      <span role="status" aria-live="polite" aria-atomic="true" className="sr-only">
-        {REPUTATION_LOADING_ANNOUNCEMENT}
-      </span>
+  // Validated announcement / landmark mode. Resolution is total and pure, so
+  // this cannot throw and always yields exactly one live region (INV-4).
+  const { options } = resolveReputationLoadingOptions({ announcement, embedded });
 
-      {/* Page heading skeleton */}
-      <div
-        aria-hidden="true"
-        className="mb-6 h-8 w-32 rounded-lg bg-slate-200 animate-shimmer motion-reduce:animate-none"
-      />
-
-      {/* ReputationProfile layout */}
-      <section className="w-full max-w-5xl mx-auto space-y-8 px-4 py-10 sm:px-6 lg:px-8">
-        <ProfileCardSkeleton metricTileLabels={metricTileLabels} />
-        <HistoryCardSkeleton historyRowCount={historyRowCount} />
-      </section>
-    </main>
+  const body = (
+    <ReputationLoadingBody
+      announcement={options.announcement}
+      metricTileLabels={metricTileLabels}
+      historyRowCount={historyRowCount}
+    />
   );
+
+  if (options.embedded) {
+    // The parent owns the `<main>` landmark and `aria-busy`; emitting a second
+    // one would produce two landmarks in one document.
+    return body;
+  }
+
+  return <main className="min-h-screen p-8" aria-busy="true">{body}</main>;
 }
